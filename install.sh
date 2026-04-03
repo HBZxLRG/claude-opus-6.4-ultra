@@ -18,7 +18,7 @@ echo -e "${CYAN}  \__ \/ / / / __ \/ _ \/ ___/ /| | / /    / /| |/ __ \/ _ \/ __
 echo -e "${CYAN} ___/ / /_/ / /_/ /  __/ /  / ___ |/ /    / ___ / /_/ /  __/ / / / /_ ${NC}"
 echo -e "${CYAN}/____/\__,_/ .___/\___/_/  /_/  |_/___/  /_/  |_\__, /\___/_/ /_/\__/ ${NC}"
 echo -e "${CYAN}          /_/                                  /____/                 ${NC}"
-echo -e "${YELLOW}       Ultimate God-Tier Agent v7.1 (Enterprise) Installer ${NC}"
+echo -e "${YELLOW}     Ultimate God-Tier Agent v7.1 [ VPS EDITION ] Installer ${NC}"
 echo -e "${BLUE}=======================================================${NC}"
 echo ""
 
@@ -81,22 +81,19 @@ run_bg() {
 }
 
 # ==========================================
-# ⚙️ INSTALLATION STEPS (No Red Screen)
+# ⚙️ INSTALLATION STEPS (Guaranteed No-Error)
 # ==========================================
-run_bg "อัพเดทระบบและติดตั้ง System Dependencies" bash -c "
+run_bg "อัพเดทระบบและติดตั้ง System Dependencies (C-Compilers)" bash -c "
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 export NEEDRESTART_SUSPEND=1
 $SUDO apt-get update -yq && \
 $SUDO apt-get upgrade -yq -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" && \
-$SUDO apt-get install -yq -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" python3 python3-pip python3-venv git curl wget jq openssh-client ffmpeg sqlite3 docker.io dnsutils traceroute nmap
+$SUDO apt-get install -yq -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" python3 python3-pip python3-venv python3-dev build-essential libjpeg-dev zlib1g-dev git curl wget jq openssh-client ffmpeg sqlite3 docker.io dnsutils traceroute nmap
 $SUDO systemctl enable docker || true
 $SUDO usermod -aG docker \$USER || true
 "
 
-# ==========================================
-# 📦 PINNED PACKAGE VERSIONS
-# ==========================================
 run_bg "สร้าง Environment และติดตั้ง Pinned Packages" bash -c "
 $SUDO mkdir -p /opt/agent/{memory,logs,downloads,workspace/tmp,db} && \
 cd /opt/agent && \
@@ -104,7 +101,8 @@ $SUDO python3 -m venv venv && \
 $SUDO chown -R root:root /opt/agent && \
 $SUDO /opt/agent/venv/bin/pip install --upgrade pip && \
 $SUDO /opt/agent/venv/bin/pip install boto3==1.34.69 python-telegram-bot==21.1.1 httpx==0.27.0 beautifulsoup4 paramiko aiofiles python-dotenv psutil pytz Pillow gTTS SpeechRecognition apscheduler lxml readability-lxml playwright==1.42.0 && \
-$SUDO /opt/agent/venv/bin/playwright install chromium --with-deps
+export DEBIAN_FRONTEND=noninteractive && \
+$SUDO -E /opt/agent/venv/bin/playwright install chromium --with-deps
 "
 
 echo -ne "${CYAN}⏳ สร้างไฟล์การตั้งค่า (.env)...${NC}"
@@ -172,7 +170,7 @@ class Memory:
             now = time.time()
             count = 0
             for f in glob.glob(f"{TMP_DIR}/*"):
-                if os.path.isfile(f) and now - os.path.getmtime(f) > 86400: # ลบไฟล์ที่เก่ากว่า 24 ชั่วโมง
+                if os.path.isfile(f) and now - os.path.getmtime(f) > 86400: # ลบไฟล์เก่ากว่า 24 ชม.
                     os.remove(f)
                     count += 1
             if count > 0: logger.info(f"Cleaned up {count} temporary files.")
@@ -231,7 +229,7 @@ def run_python_code(code):
     tmp_py = f"{TMP_DIR}/script_{int(time.time())}.py"
     with open(tmp_py, "w") as f: f.write(code)
     try:
-        r = subprocess.run(f"python3 {tmp_py}", shell=True, capture_output=True, text=True, timeout=120)
+        r = subprocess.run(f"/opt/agent/venv/bin/python3 {tmp_py}", shell=True, capture_output=True, text=True, timeout=120)
         out = (r.stdout or "") + (r.stderr or "")
         return smart_truncate(out)
     except Exception as e: return f"❌ Python Error: {str(e)}"
@@ -435,7 +433,7 @@ BOTFILE
 echo -e "\r${GREEN}✅ สร้างระบบ Telegram Bot (bot.py)... เสร็จสิ้น!${NC}"
 
 # ==========================================
-# 🚀 SYSTEMD & AUTO START
+# 🚀 SYSTEMD & AUTO START (With Logging)
 # ==========================================
 run_bg "ตั้งค่า Systemd และเปิดใช้งานบอทอัตโนมัติ" bash -c "
 $SUDO pkill -f 'python3.*bot.py' 2>/dev/null || true
@@ -452,6 +450,8 @@ ExecStart=/opt/agent/venv/bin/python3 /opt/agent/bot.py
 Restart=always
 RestartSec=5
 EnvironmentFile=/opt/agent/.env
+StandardOutput=append:/opt/agent/logs/service.log
+StandardError=append:/opt/agent/logs/service.log
 
 [Install]
 WantedBy=multi-user.target
