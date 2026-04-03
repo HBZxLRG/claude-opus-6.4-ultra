@@ -231,7 +231,7 @@ def execute_tool(name, params):
     if name == "search_memory": return "\n".join(memory.search_notes(params["keyword"])) or "ไม่พบข้อมูล"
     return "❌ Unknown tool"
 
-def call_agent_sync(user_message, status_queue=None):
+def call_agent_sync(user_message):
     memory.add_chat("user", user_message)
     messages = [{"role": m["role"], "content": m["content"]} for m in memory.chat_history[-20:]]
     
@@ -285,7 +285,6 @@ def call_agent_sync(user_message, status_queue=None):
             tool_results = []
             
             for tool in tool_uses:
-                if status_queue: status_queue.put(f"🔧 กำลังทำงาน: {tool['name']}...")
                 result_text = execute_tool(tool["name"], tool["input"])
                 tool_results.append({"type": "tool_result", "tool_use_id": tool["id"], "content": result_text})
                 
@@ -303,11 +302,11 @@ AGENTFILE
 echo -e "\r${GREEN}✅ สร้างระบบประมวลผลหลัก (agent.py)... เสร็จสิ้น!${NC}"
 
 # ==========================================
-# 🤖 BOT.PY (TELEGRAM SYSTEM)
+# 🤖 BOT.PY (TELEGRAM SYSTEM WITH TYPING INDICATOR)
 # ==========================================
 echo -ne "${CYAN}⏳ สร้างระบบ Telegram Bot (bot.py)...${NC}"
 cat << 'BOTFILE' | $SUDO tee /opt/agent/bot.py > /dev/null
-import os, asyncio, queue, threading
+import os, asyncio
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -323,41 +322,42 @@ def auth(func):
         return await func(update, context)
     return wrapper
 
+# ลูปกระตุ้นสถานะ Typing... ต่อเนื่องจนกว่าบอทจะคิดเสร็จ
+async def typing_loop(chat):
+    try:
+        while True:
+            await chat.send_action("typing")
+            await asyncio.sleep(4)
+    except asyncio.CancelledError:
+        pass
+
 @auth
 async def start(update, context):
     await update.message.reply_text("🚀 Ultimate Agent v7.0 พร้อมรับคำสั่ง Root ครับเจ้านาย!")
 
-async def process_with_status(update, context, user_msg):
-    status_msg = await update.message.reply_text("⏳ กำลังวิเคราะห์คำสั่ง...")
-    q = queue.Queue()
+async def process_message(update, context, user_msg):
+    chat = update.effective_chat
+    # เปิดสถานะ Typing ทิ้งไว้
+    typing_task = asyncio.create_task(typing_loop(chat))
     
-    def run_agent():
-        return call_agent_sync(user_msg, status_queue=q)
-        
-    loop = asyncio.get_event_loop()
-    agent_task = loop.run_in_executor(None, run_agent)
-    
-    while not agent_task.done():
-        try:
-            status = q.get_nowait()
-            await status_msg.edit_text(status)
-        except queue.Empty:
-            await asyncio.sleep(0.5)
-            
-    final_response = await agent_task
     try:
+        loop = asyncio.get_event_loop()
+        final_response = await loop.run_in_executor(None, call_agent_sync, user_msg)
+        
         if len(final_response) > 4000:
-            await status_msg.edit_text("✅ ประมวลผลเสร็จสิ้น (ข้อความยาว ส่งแยกด้านล่าง)")
             for i in range(0, len(final_response), 4000):
-                await context.bot.send_message(update.effective_chat.id, final_response[i:i+4000])
+                await context.bot.send_message(chat.id, final_response[i:i+4000])
         else:
-            await status_msg.edit_text(final_response)
+            await context.bot.send_message(chat.id, final_response)
     except Exception as e:
-        await context.bot.send_message(update.effective_chat.id, final_response[:4000])
+        await context.bot.send_message(chat.id, f"❌ Error: {str(e)[:4000]}")
+    finally:
+        # ปิด Typing ทันทีเมื่อเสร็จงาน
+        typing_task.cancel()
 
 @auth
 async def handle_message(update, context):
-    await process_with_status(update, context, update.message.text)
+    await process_message(update, context, update.message.text)
 
 def main():
     app = Application.builder().token(TG_TOKEN).build()
