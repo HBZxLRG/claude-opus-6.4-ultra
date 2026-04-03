@@ -81,12 +81,16 @@ run_bg() {
 }
 
 # ==========================================
-# ⚙️ INSTALLATION STEPS
+# ⚙️ INSTALLATION STEPS (แก้หน้าจอแดง 100%)
 # ==========================================
 
 run_bg "อัพเดทระบบและติดตั้ง System Dependencies" bash -c "
-$SUDO apt update -y && $SUDO apt upgrade -y && \
-$SUDO DEBIAN_FRONTEND=noninteractive apt install -y python3 python3-pip python3-venv git curl wget jq openssh-client ffmpeg sqlite3 docker.io dnsutils traceroute nmap
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+export NEEDRESTART_SUSPEND=1
+$SUDO apt-get update -yq && \
+$SUDO apt-get upgrade -yq -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" && \
+$SUDO apt-get install -yq -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" python3 python3-pip python3-venv git curl wget jq openssh-client ffmpeg sqlite3 docker.io dnsutils traceroute nmap
 $SUDO systemctl enable docker || true
 $SUDO usermod -aG docker \$USER || true
 "
@@ -295,6 +299,7 @@ def call_agent_sync(user_message):
             break
 
     final = "\n\n".join(all_responses)
+    if not final.strip(): final = "✅ ดำเนินการเสร็จสิ้น (ไม่มีข้อความตอบกลับ)"
     memory.add_chat("assistant", final)
     return final
 
